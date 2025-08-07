@@ -147,7 +147,7 @@ namespace
 
 void build_bvh_sah(
     const float3 *points,
-    const int *indices,
+    const uint3 *indices,
     int num_tris,
     std::vector<BVHPackedNode> &out_nodes)
 {
@@ -155,13 +155,11 @@ void build_bvh_sah(
 
     for (int i = 0; i < num_tris; ++i)
     {
-        int i0 = indices[i * 3 + 0];
-        int i1 = indices[i * 3 + 1];
-        int i2 = indices[i * 3 + 2];
+        uint3 tri = indices[i];
 
-        float3 v0 = points[i0];
-        float3 v1 = points[i1];
-        float3 v2 = points[i2];
+        float3 v0 = points[tri.x];
+        float3 v1 = points[tri.y];
+        float3 v2 = points[tri.z];
 
         PrimRef &prim = prims[i];
         prim.tri_index = i;

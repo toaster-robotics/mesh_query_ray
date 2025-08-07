@@ -110,6 +110,6 @@ struct BVH
 
 void build_bvh_sah(
     const float3 *points,
-    const int *indices,
+    const uint3 *indices,
     int num_tris,
     std::vector<BVHPackedNode> &out_nodes);

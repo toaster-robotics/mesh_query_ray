@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <vector>
 
 struct mesh_query_ray_t
 {
@@ -14,7 +15,7 @@ struct mesh_query_ray_t
 struct Mesh
 {
     float3 *points;
-    int *indices;
+    uint3 *indices;
     int num_tris;
 };
 
@@ -22,8 +23,8 @@ struct MeshPair
 {
     Mesh h_mesh;
     Mesh *d_mesh;
-    float3 *h_points;
-    int *h_indices;
+    std::vector<float3> h_points;
+    std::vector<uint3> h_indices;
 };
 
 MeshPair get_mesh();

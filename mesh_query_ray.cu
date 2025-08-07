@@ -118,9 +118,8 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
             for (int i = 0; i < count; ++i)
             {
                 int tri_index = start + i;
-                int i0 = mesh->indices[tri_index * 3 + 0];
-                int i1 = mesh->indices[tri_index * 3 + 1];
-                int i2 = mesh->indices[tri_index * 3 + 2];
+                uint3 tri = mesh->indices[tri_index];
+                int i0 = tri.x, i1 = tri.y, i2 = tri.z;
 
                 float3 v0 = mesh->points[i0];
                 float3 v1 = mesh->points[i1];
@@ -166,7 +165,7 @@ int main()
 
     // BVH -----------------------------------------------------
     std::vector<BVHPackedNode> bvh_nodes;
-    build_bvh_sah(mesh.h_points, mesh.h_indices, mesh.h_mesh.num_tris, bvh_nodes);
+    build_bvh_sah(mesh.h_points.data(), mesh.h_indices.data(), mesh.h_mesh.num_tris, bvh_nodes);
 
     // Upload nodes to GPU
     BVHPackedNode *d_bvh_nodes;
@@ -195,8 +194,6 @@ int main()
 
     cudaFree(d_bvh_nodes);
     cudaFree(d_bvh_struct);
-    delete[] mesh.h_points;
-    delete[] mesh.h_indices;
 
     return 0;
 }
