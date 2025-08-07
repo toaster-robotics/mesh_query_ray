@@ -53,6 +53,72 @@ struct Mesh
 };
 
 //-------------------------------------------------
+// BVH structs
+struct BVHPackedNodeHalf
+{
+    float3 lower;
+    float3 upper;
+};
+
+struct BVHPackedNode
+{
+    BVHPackedNodeHalf left;
+    BVHPackedNodeHalf right;
+
+    union
+    {
+        unsigned int child; // index of left child node
+        int prim_index;     // index of triangle if leaf
+    };
+
+    union
+    {
+        unsigned int right_child; // index of right child node
+        int prim_count;           // count if leaf
+    };
+
+    unsigned int flags;
+};
+
+struct BVH
+{
+    BVHPackedNode *nodes;
+    int num_nodes;
+};
+
+__device__ inline bool intersect_ray_aabb(const float3 &origin, const float3 &inv_dir,
+                                          const float3 &lower, const float3 &upper,
+                                          float &tmin, float &tmax)
+{
+    float t0 = 0.0f, t1 = tmax;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        float invD = (&inv_dir.x)[i];
+        float o = (&origin.x)[i];
+        float tNear = ((&lower.x)[i] - o) * invD;
+        float tFar = ((&upper.x)[i] - o) * invD;
+
+        if (tNear > tFar)
+        {
+            float tmp = tNear;
+            tNear = tFar;
+            tFar = tmp;
+        }
+
+        t0 = fmaxf(t0, tNear);
+        t1 = fminf(t1, tFar);
+
+        if (t0 > t1)
+            return false;
+    }
+
+    tmin = t0;
+    tmax = t1;
+    return true;
+}
+
+//-------------------------------------------------
 // Ray-triangle intersection (Möller-Trumbore)
 
 __device__ mesh_query_ray_t intersect_ray_triangle(
@@ -97,25 +163,58 @@ __device__ mesh_query_ray_t intersect_ray_triangle(
 //-------------------------------------------------
 // mesh_query_ray: brute-force (no BVH)
 
-__device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, const float3 &orig, const float3 &dir, float max_t)
+__device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &origin, const float3 &dir, float max_t)
 {
     mesh_query_ray_t closest_hit = {};
     closest_hit.t = max_t;
 
-    for (int i = 0; i < mesh->num_tris; ++i)
+    float3 inv_dir = make_float3(1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z);
+
+    int stack[BVH_STACK_SIZE];
+    int stack_size = 0;
+
+    stack[stack_size++] = 0; // root node index
+
+    while (stack_size > 0)
     {
-        int i0 = mesh->indices[i * 3 + 0];
-        int i1 = mesh->indices[i * 3 + 1];
-        int i2 = mesh->indices[i * 3 + 2];
+        int node_idx = stack[--stack_size];
+        const BVHPackedNode &node = bvh->nodes[node_idx];
 
-        float3 v0 = mesh->points[i0];
-        float3 v1 = mesh->points[i1];
-        float3 v2 = mesh->points[i2];
+        float tmin_left = 0.0f, tmax_left = closest_hit.t;
+        float tmin_right = 0.0f, tmax_right = closest_hit.t;
 
-        mesh_query_ray_t hit = intersect_ray_triangle(orig, dir, v0, v1, v2, closest_hit.t, i);
+        bool hit_left = intersect_ray_aabb(origin, inv_dir, node.left.lower, node.left.upper, tmin_left, tmax_left);
+        bool hit_right = intersect_ray_aabb(origin, inv_dir, node.right.lower, node.right.upper, tmin_right, tmax_right);
 
-        if (hit.result && hit.t < closest_hit.t)
-            closest_hit = hit;
+        if (node.flags == 1) // leaf
+        {
+            int start = node.prim_index;
+            int count = node.prim_count;
+
+            for (int i = 0; i < count; ++i)
+            {
+                int tri_index = start + i;
+                int i0 = mesh->indices[tri_index * 3 + 0];
+                int i1 = mesh->indices[tri_index * 3 + 1];
+                int i2 = mesh->indices[tri_index * 3 + 2];
+
+                float3 v0 = mesh->points[i0];
+                float3 v1 = mesh->points[i1];
+                float3 v2 = mesh->points[i2];
+
+                mesh_query_ray_t hit = intersect_ray_triangle(origin, dir, v0, v1, v2, closest_hit.t, tri_index);
+                if (hit.result && hit.t < closest_hit.t)
+                    closest_hit = hit;
+            }
+        }
+        else
+        {
+            if (hit_right)
+                stack[stack_size++] = node.right_child;
+
+            if (hit_left)
+                stack[stack_size++] = node.child;
+        }
     }
 
     return closest_hit;
@@ -124,14 +223,14 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, const float3 &orig, const
 //-------------------------------------------------
 // Kernel and main
 
-__global__ void ray_kernel(Mesh *mesh)
+__global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 {
     float3 orig1 = make_float3(5.0f, 0.5f, 0.5f);
     float3 orig2 = make_float3(5.0f, 1.5f, 1.5f);
     float3 dir = make_float3(-1.0f, 0.0f, 0.0f);
 
-    mesh_query_ray_t q1 = mesh_query_ray(mesh, orig1, dir, 1.0e6f);
-    mesh_query_ray_t q2 = mesh_query_ray(mesh, orig2, dir, 1.0e6f);
+    mesh_query_ray_t q1 = mesh_query_ray(mesh, bvh, orig1, dir, 1.0e6f);
+    mesh_query_ray_t q2 = mesh_query_ray(mesh, bvh, orig2, dir, 1.0e6f);
 
     printf("Hit1: %d t=%.4f face=%d\n", q1.result, q1.t, q1.face);
     printf("Hit2: %d t=%.4f face=%d\n", q2.result, q2.t, q2.face);
@@ -163,13 +262,57 @@ int main()
     h_mesh.indices = d_indices;
     cudaMemcpy(d_mesh, &h_mesh, sizeof(Mesh), cudaMemcpyHostToDevice);
 
-    ray_kernel<<<1, 1>>>(d_mesh);
+    // BVH -----------------------------------------------------
+    // 3 BVH nodes: root + 2 leaves
+    BVHPackedNode h_nodes[3] = {};
+
+    // Leaf 0: triangle 0
+    h_nodes[1].left.lower = h_points[0];
+    h_nodes[1].left.upper = h_points[2]; // conservative bbox for tri 0
+    h_nodes[1].flags = 1;                // leaf
+    h_nodes[1].prim_index = 0;
+    h_nodes[1].prim_count = 1;
+
+    // Leaf 1: triangle 1
+    h_nodes[2].left.lower = h_points[0];
+    h_nodes[2].left.upper = h_points[3]; // conservative bbox for tri 1
+    h_nodes[2].flags = 1;                // leaf
+    h_nodes[2].prim_index = 1;
+    h_nodes[2].prim_count = 1;
+
+    // Root: internal node
+    h_nodes[0].left.lower = h_nodes[1].left.lower;
+    h_nodes[0].left.upper = h_nodes[1].left.upper;
+    h_nodes[0].right.lower = h_nodes[2].left.lower;
+    h_nodes[0].right.upper = h_nodes[2].left.upper;
+    h_nodes[0].flags = 0;
+    h_nodes[0].child = 1;       // left = node 1
+    h_nodes[0].right_child = 2; // right = node 2
+
+    // Upload BVH
+    BVHPackedNode *d_nodes;
+    cudaMalloc(&d_nodes, sizeof(BVHPackedNode) * 3);
+    cudaMemcpy(d_nodes, h_nodes, sizeof(BVHPackedNode) * 3, cudaMemcpyHostToDevice);
+
+    BVH h_bvh;
+    h_bvh.nodes = d_nodes;
+    h_bvh.num_nodes = 3;
+
+    BVH *d_bvh;
+    cudaMalloc(&d_bvh, sizeof(BVH));
+    cudaMemcpy(d_bvh, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+    // BVH -----------------------------------------------------
+
+    ray_kernel<<<1, 1>>>(d_mesh, d_bvh);
     cudaDeviceSynchronize();
 
     // Cleanup
     cudaFree(d_mesh);
     cudaFree(d_points);
     cudaFree(d_indices);
+
+    cudaFree(d_nodes);
+    cudaFree(d_bvh);
 
     return 0;
 }
