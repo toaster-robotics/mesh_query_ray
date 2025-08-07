@@ -145,7 +145,7 @@ namespace
 
 } // anonymous namespace
 
-void build_bvh_sah(
+void build_sah_bvh(
     const float3 *points,
     const uint3 *indices,
     int num_tris,

@@ -121,9 +121,9 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
                 uint3 tri = mesh->indices[tri_index];
                 int i0 = tri.x, i1 = tri.y, i2 = tri.z;
 
-                float3 v0 = mesh->points[i0];
-                float3 v1 = mesh->points[i1];
-                float3 v2 = mesh->points[i2];
+                float3 v0 = mesh->vertices[i0];
+                float3 v1 = mesh->vertices[i1];
+                float3 v2 = mesh->vertices[i2];
 
                 mesh_query_ray_t hit = intersect_ray_triangle(origin, dir, v0, v1, v2, closest_hit.t, tri_index);
                 if (hit.result && hit.t < closest_hit.t)
@@ -148,8 +148,10 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
 
 __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 {
+    float d = 1.0f;
+    d += 0.000001f;
     float3 orig1 = make_float3(5.0f, 0.5f, 0.5f);
-    float3 orig2 = make_float3(5.0f, 1.5f, 1.5f);
+    float3 orig2 = make_float3(5.0f, d, d);
     float3 dir = make_float3(-1.0f, 0.0f, 0.0f);
 
     mesh_query_ray_t q1 = mesh_query_ray(mesh, bvh, orig1, dir, 1.0e6f);
@@ -161,22 +163,24 @@ __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 
 int main()
 {
-    MeshPair mesh = get_mesh();
-    BVHPair bvh = bvh_stuff(mesh);
+    MeshContainer mesh = get_mesh();
+    BVHContainer bvh = get_bvh(mesh);
+
+    printf("%f %f %f %f\n", mesh.center.x, mesh.center.y, mesh.center.z, mesh.radius);
 
     // BVH -----------------------------------------------------
 
     // ray_kernel<<<num_blocks, threads_per_block>>>(...);
-    ray_kernel<<<1, 1>>>(mesh.d_mesh, bvh.d_bvh);
+    ray_kernel<<<1, 1>>>(mesh.device, bvh.device_bvh);
     cudaDeviceSynchronize();
 
     // Cleanup
-    cudaFree(mesh.d_mesh);
-    cudaFree(mesh.h_mesh.points);
-    cudaFree(mesh.h_mesh.indices);
+    cudaFree(mesh.device);
+    cudaFree(mesh.host.vertices);
+    cudaFree(mesh.host.indices);
 
-    cudaFree(bvh.d_nodes);
-    cudaFree(bvh.d_bvh);
+    cudaFree(bvh.device_nodes);
+    cudaFree(bvh.device_bvh);
 
     return 0;
 }

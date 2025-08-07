@@ -17,6 +17,11 @@ __host__ __device__ inline float3 operator*(const float3 &a, float s)
     return make_float3(a.x * s, a.y * s, a.z * s);
 }
 
+__host__ __device__ inline float3 operator-(const float3 &v)
+{
+    return make_float3(-v.x, -v.y, -v.z);
+}
+
 __host__ __device__ inline float3 cross(const float3 &a, const float3 &b)
 {
     return make_float3(
@@ -28,6 +33,13 @@ __host__ __device__ inline float3 cross(const float3 &a, const float3 &b)
 __host__ __device__ inline float dot(const float3 &a, const float3 &b)
 {
     return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+__host__ __device__ inline float length(const float3 &v)
+{
+    float len_sq = v.x * v.x + v.y * v.y + v.z * v.z;
+
+    return sqrtf(len_sq);
 }
 
 __host__ __device__ inline float3 normalize(const float3 &v)

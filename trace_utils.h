@@ -9,33 +9,45 @@ struct mesh_query_ray_t
     int face;
 
     float3 hit_point;
-    float ray_distance;
     float3 normal;
 };
 
 struct Mesh
 {
-    float3 *points;
+    float3 *vertices;
     uint3 *indices;
     int num_tris;
 };
 
-struct MeshPair
+struct MeshContainer
 {
-    Mesh h_mesh;
-    Mesh *d_mesh;
-    std::vector<float3> h_points;
-    std::vector<uint3> h_indices;
+    Mesh host;
+    Mesh *device;
+    std::vector<float3> vertices;
+    std::vector<uint3> indices;
+
+    float3 center;
+    float radius;
 };
 
-MeshPair get_mesh();
+MeshContainer get_mesh();
 
-// BVH *bvh_stuff(const MeshPair &mesh);
-
-struct BVHPair
+struct BVHContainer
 {
-    BVH *d_bvh;
-    BVHPackedNode *d_nodes;
+    BVH *device_bvh;
+    BVHPackedNode *device_nodes;
 };
 
-BVHPair bvh_stuff(const MeshPair &mesh);
+BVHContainer get_bvh(const MeshContainer &mesh);
+
+struct MinMaxResult
+{
+    float2 min_point;
+    float2 max_point;
+};
+
+MinMaxResult computeMinMaxPoints(
+    const std::vector<float3> &mesh_points,
+    const float3 &r_hat,
+    const float3 &phi_hat,
+    const float3 &theta_hat);
