@@ -4,7 +4,9 @@ import warp as wp
 @wp.kernel
 def ray_trace(mesh: wp.uint64):
     ray_origin1 = wp.vec3(5.0, 0.5, 0.5)
-    ray_origin2 = wp.vec3(5.0, 1.5, 1.5)
+    # ray_origin2 = wp.vec3(5.0, 1.5, 1.5)
+    ray_origin2 = wp.vec3(2.232051, 0.031250, 0.531250)
+    # float3 orig1 = make_float3(2.232051, 0.031250, 0.531250);
     ray_direction = wp.vec3(-1.0, 0.0, 0.0)
 
     query1 = wp.mesh_query_ray(mesh, ray_origin1, ray_direction, 1.0e6)

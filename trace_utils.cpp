@@ -1,4 +1,29 @@
 #include "trace_utils.h"
+#include <cstdio>
+
+#define CUDA_OK(x)                                              \
+    do                                                          \
+    {                                                           \
+        cudaError_t e = (x);                                    \
+        if (e != cudaSuccess)                                   \
+        {                                                       \
+            fprintf(stderr,                                     \
+                    "CUDA error %s:%d: %s\n",                   \
+                    __FILE__, __LINE__, cudaGetErrorString(e)); \
+            exit(1);                                            \
+        }                                                       \
+    } while (0)
+
+// #define CUDA_OK(x)                                                                                \
+//     do                                                                                            \
+//     {                                                                                             \
+//         cudaError_t e = (x);                                                                      \
+//         if (e != cudaSuccess)                                                                     \
+//         {                                                                                         \
+//             fprintf(stderr, "CUDA error %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
+//             abort();                                                                              \
+//         }                                                                                         \
+//     } while (0)
 
 MeshContainer get_mesh()
 {
@@ -91,10 +116,27 @@ BVHContainer get_bvh(const MeshContainer &mesh)
     std::vector<BVHPackedNode> bvh_nodes;
     build_sah_bvh(mesh.vertices.data(), mesh.indices.data(), mesh.host.num_tris, bvh_nodes);
 
+    // After build_sah_bvh(...)
+    if (bvh_nodes.empty())
+    {
+        printf("BVH ERROR: out_nodes is empty (num_tris=%d)\n", mesh.host.num_tris);
+    }
+    else
+    {
+        const BVHPackedNode &r = bvh_nodes[0];
+        printf("HOST ROOT left:  [%f,%f,%f]-[%f,%f,%f]\n",
+               r.left.lower.x, r.left.lower.y, r.left.lower.z,
+               r.left.upper.x, r.left.upper.y, r.left.upper.z);
+        printf("HOST ROOT right: [%f,%f,%f]-[%f,%f,%f]\n",
+               r.right.lower.x, r.right.lower.y, r.right.lower.z,
+               r.right.upper.x, r.right.upper.y, r.right.upper.z);
+        printf("HOST BVH nodes: %zu\n", bvh_nodes.size());
+    }
+
     // Upload nodes to GPU
     BVHPackedNode *d_bvh_nodes;
-    cudaMalloc(&d_bvh_nodes, sizeof(BVHPackedNode) * bvh_nodes.size());
-    cudaMemcpy(d_bvh_nodes, bvh_nodes.data(), sizeof(BVHPackedNode) * bvh_nodes.size(), cudaMemcpyHostToDevice);
+    CUDA_OK(cudaMalloc(&d_bvh_nodes, sizeof(BVHPackedNode) * bvh_nodes.size()));
+    CUDA_OK(cudaMemcpy(d_bvh_nodes, bvh_nodes.data(), sizeof(BVHPackedNode) * bvh_nodes.size(), cudaMemcpyHostToDevice));
 
     // Wrap in BVH struct
     BVH h_bvh;
@@ -102,8 +144,8 @@ BVHContainer get_bvh(const MeshContainer &mesh)
     h_bvh.num_nodes = static_cast<int>(bvh_nodes.size());
 
     BVH *d_bvh_struct;
-    cudaMalloc(&d_bvh_struct, sizeof(BVH));
-    cudaMemcpy(d_bvh_struct, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+    CUDA_OK(cudaMalloc(&d_bvh_struct, sizeof(BVH)));
+    CUDA_OK(cudaMemcpy(d_bvh_struct, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice));
 
     return {d_bvh_struct, d_bvh_nodes};
 }

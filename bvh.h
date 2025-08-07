@@ -13,8 +13,8 @@
 
 struct BVHPackedNodeHalf
 {
-    float3 lower;
-    float3 upper;
+    float4 lower;
+    float4 upper;
 };
 
 struct BVHPackedNode
@@ -27,7 +27,6 @@ struct BVHPackedNode
         unsigned int child;
         int prim_index;
     };
-
     union
     {
         unsigned int right_child;

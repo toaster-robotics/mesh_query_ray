@@ -1,5 +1,5 @@
 #!/bin/bash
-
+clear
 set -e
 
 rm -f raytrace 
