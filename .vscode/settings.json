@@ -10,4 +10,7 @@
   "cSpell.words": [
 
   ],
+  "files.associations": {
+    "cmath": "cpp"
+  },
 }

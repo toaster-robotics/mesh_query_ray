@@ -1,39 +1,12 @@
 // mesh_query_ray.cu (minimal CUDA-only version)
-
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
+#include "sah_bvh_builder.h"
+// #include "vector_math.h"
 
 #define BVH_STACK_SIZE 64
-
-__host__ __device__ inline float3 operator+(const float3 &a, const float3 &b)
-{
-    return make_float3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
-__host__ __device__ inline float3 operator-(const float3 &a, const float3 &b)
-{
-    return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-__host__ __device__ inline float3 operator*(const float3 &a, float s)
-{
-    return make_float3(a.x * s, a.y * s, a.z * s);
-}
-
-__host__ __device__ inline float3 cross(const float3 &a, const float3 &b)
-{
-    return make_float3(
-        a.y * b.z - a.z * b.y,
-        a.z * b.x - a.x * b.z,
-        a.x * b.y - a.y * b.x);
-}
-
-__host__ __device__ inline float dot(const float3 &a, const float3 &b)
-{
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
 
 //-------------------------------------------------
 // Mesh structs
@@ -43,6 +16,10 @@ struct mesh_query_ray_t
     bool result;
     float u, v, t;
     int face;
+
+    float3 hit_point;
+    float ray_distance;
+    float3 normal;
 };
 
 struct Mesh
@@ -54,31 +31,6 @@ struct Mesh
 
 //-------------------------------------------------
 // BVH structs
-struct BVHPackedNodeHalf
-{
-    float3 lower;
-    float3 upper;
-};
-
-struct BVHPackedNode
-{
-    BVHPackedNodeHalf left;
-    BVHPackedNodeHalf right;
-
-    union
-    {
-        unsigned int child; // index of left child node
-        int prim_index;     // index of triangle if leaf
-    };
-
-    union
-    {
-        unsigned int right_child; // index of right child node
-        int prim_count;           // count if leaf
-    };
-
-    unsigned int flags;
-};
 
 struct BVH
 {
@@ -156,6 +108,10 @@ __device__ mesh_query_ray_t intersect_ray_triangle(
         out.v = v;
         out.t = t;
         out.face = face_index;
+
+        out.hit_point = orig + dir * t;
+        float3 n = cross(v1 - v0, v2 - v0);
+        out.normal = normalize(n);
     }
     return out;
 }
@@ -263,47 +219,27 @@ int main()
     cudaMemcpy(d_mesh, &h_mesh, sizeof(Mesh), cudaMemcpyHostToDevice);
 
     // BVH -----------------------------------------------------
-    // 3 BVH nodes: root + 2 leaves
-    BVHPackedNode h_nodes[3] = {};
+    std::vector<BVHPackedNode> bvh_nodes;
+    build_bvh_sah(h_points, h_indices, h_mesh.num_tris, bvh_nodes);
 
-    // Leaf 0: triangle 0
-    h_nodes[1].left.lower = h_points[0];
-    h_nodes[1].left.upper = h_points[2]; // conservative bbox for tri 0
-    h_nodes[1].flags = 1;                // leaf
-    h_nodes[1].prim_index = 0;
-    h_nodes[1].prim_count = 1;
+    // Upload nodes to GPU
+    BVHPackedNode *d_bvh_nodes;
+    cudaMalloc(&d_bvh_nodes, sizeof(BVHPackedNode) * bvh_nodes.size());
+    cudaMemcpy(d_bvh_nodes, bvh_nodes.data(), sizeof(BVHPackedNode) * bvh_nodes.size(), cudaMemcpyHostToDevice);
 
-    // Leaf 1: triangle 1
-    h_nodes[2].left.lower = h_points[0];
-    h_nodes[2].left.upper = h_points[3]; // conservative bbox for tri 1
-    h_nodes[2].flags = 1;                // leaf
-    h_nodes[2].prim_index = 1;
-    h_nodes[2].prim_count = 1;
-
-    // Root: internal node
-    h_nodes[0].left.lower = h_nodes[1].left.lower;
-    h_nodes[0].left.upper = h_nodes[1].left.upper;
-    h_nodes[0].right.lower = h_nodes[2].left.lower;
-    h_nodes[0].right.upper = h_nodes[2].left.upper;
-    h_nodes[0].flags = 0;
-    h_nodes[0].child = 1;       // left = node 1
-    h_nodes[0].right_child = 2; // right = node 2
-
-    // Upload BVH
-    BVHPackedNode *d_nodes;
-    cudaMalloc(&d_nodes, sizeof(BVHPackedNode) * 3);
-    cudaMemcpy(d_nodes, h_nodes, sizeof(BVHPackedNode) * 3, cudaMemcpyHostToDevice);
-
+    // Wrap in BVH struct
     BVH h_bvh;
-    h_bvh.nodes = d_nodes;
-    h_bvh.num_nodes = 3;
+    h_bvh.nodes = d_bvh_nodes;
+    h_bvh.num_nodes = static_cast<int>(bvh_nodes.size());
 
-    BVH *d_bvh;
-    cudaMalloc(&d_bvh, sizeof(BVH));
-    cudaMemcpy(d_bvh, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+    BVH *d_bvh_struct;
+    cudaMalloc(&d_bvh_struct, sizeof(BVH));
+    cudaMemcpy(d_bvh_struct, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+
     // BVH -----------------------------------------------------
 
-    ray_kernel<<<1, 1>>>(d_mesh, d_bvh);
+    // ray_kernel<<<num_blocks, threads_per_block>>>(...);
+    ray_kernel<<<1, 1>>>(d_mesh, d_bvh_struct);
     cudaDeviceSynchronize();
 
     // Cleanup
@@ -311,8 +247,8 @@ int main()
     cudaFree(d_points);
     cudaFree(d_indices);
 
-    cudaFree(d_nodes);
-    cudaFree(d_bvh);
+    cudaFree(d_bvh_nodes);
+    cudaFree(d_bvh_struct);
 
     return 0;
 }
