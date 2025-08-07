@@ -41,3 +41,27 @@ MeshPair get_mesh()
 
     return mesh;
 }
+
+BVHPair bvh_stuff(const MeshPair &mesh)
+{
+
+    // BVH -----------------------------------------------------
+    std::vector<BVHPackedNode> bvh_nodes;
+    build_bvh_sah(mesh.h_points.data(), mesh.h_indices.data(), mesh.h_mesh.num_tris, bvh_nodes);
+
+    // Upload nodes to GPU
+    BVHPackedNode *d_bvh_nodes;
+    cudaMalloc(&d_bvh_nodes, sizeof(BVHPackedNode) * bvh_nodes.size());
+    cudaMemcpy(d_bvh_nodes, bvh_nodes.data(), sizeof(BVHPackedNode) * bvh_nodes.size(), cudaMemcpyHostToDevice);
+
+    // Wrap in BVH struct
+    BVH h_bvh;
+    h_bvh.nodes = d_bvh_nodes;
+    h_bvh.num_nodes = static_cast<int>(bvh_nodes.size());
+
+    BVH *d_bvh_struct;
+    cudaMalloc(&d_bvh_struct, sizeof(BVH));
+    cudaMemcpy(d_bvh_struct, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+
+    return {d_bvh_struct, d_bvh_nodes};
+}

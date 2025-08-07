@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <vector>
+#include "bvh.h"
 
 struct mesh_query_ray_t
 {
@@ -28,3 +29,13 @@ struct MeshPair
 };
 
 MeshPair get_mesh();
+
+// BVH *bvh_stuff(const MeshPair &mesh);
+
+struct BVHPair
+{
+    BVH *d_bvh;
+    BVHPackedNode *d_nodes;
+};
+
+BVHPair bvh_stuff(const MeshPair &mesh);

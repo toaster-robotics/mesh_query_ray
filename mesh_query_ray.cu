@@ -162,29 +162,12 @@ __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 int main()
 {
     MeshPair mesh = get_mesh();
-
-    // BVH -----------------------------------------------------
-    std::vector<BVHPackedNode> bvh_nodes;
-    build_bvh_sah(mesh.h_points.data(), mesh.h_indices.data(), mesh.h_mesh.num_tris, bvh_nodes);
-
-    // Upload nodes to GPU
-    BVHPackedNode *d_bvh_nodes;
-    cudaMalloc(&d_bvh_nodes, sizeof(BVHPackedNode) * bvh_nodes.size());
-    cudaMemcpy(d_bvh_nodes, bvh_nodes.data(), sizeof(BVHPackedNode) * bvh_nodes.size(), cudaMemcpyHostToDevice);
-
-    // Wrap in BVH struct
-    BVH h_bvh;
-    h_bvh.nodes = d_bvh_nodes;
-    h_bvh.num_nodes = static_cast<int>(bvh_nodes.size());
-
-    BVH *d_bvh_struct;
-    cudaMalloc(&d_bvh_struct, sizeof(BVH));
-    cudaMemcpy(d_bvh_struct, &h_bvh, sizeof(BVH), cudaMemcpyHostToDevice);
+    BVHPair bvh = bvh_stuff(mesh);
 
     // BVH -----------------------------------------------------
 
     // ray_kernel<<<num_blocks, threads_per_block>>>(...);
-    ray_kernel<<<1, 1>>>(mesh.d_mesh, d_bvh_struct);
+    ray_kernel<<<1, 1>>>(mesh.d_mesh, bvh.d_bvh);
     cudaDeviceSynchronize();
 
     // Cleanup
@@ -192,8 +175,8 @@ int main()
     cudaFree(mesh.h_mesh.points);
     cudaFree(mesh.h_mesh.indices);
 
-    cudaFree(d_bvh_nodes);
-    cudaFree(d_bvh_struct);
+    cudaFree(bvh.d_nodes);
+    cudaFree(bvh.d_bvh);
 
     return 0;
 }
