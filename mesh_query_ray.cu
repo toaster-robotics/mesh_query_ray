@@ -3,40 +3,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
-#include "sah_bvh_builder.h"
-// #include "vector_math.h"
-
-#define BVH_STACK_SIZE 64
-
-//-------------------------------------------------
-// Mesh structs
-
-struct mesh_query_ray_t
-{
-    bool result;
-    float u, v, t;
-    int face;
-
-    float3 hit_point;
-    float ray_distance;
-    float3 normal;
-};
-
-struct Mesh
-{
-    float3 *points;
-    int *indices;
-    int num_tris;
-};
-
-//-------------------------------------------------
-// BVH structs
-
-struct BVH
-{
-    BVHPackedNode *nodes;
-    int num_nodes;
-};
+#include "bvh.h"
+#include "trace_utils.h"
 
 __device__ inline bool intersect_ray_aabb(const float3 &origin, const float3 &inv_dir,
                                           const float3 &lower, const float3 &upper,
@@ -194,33 +162,11 @@ __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 
 int main()
 {
-    // Simple square mesh: 2 triangles
-    float3 h_points[] = {
-        make_float3(0, 0, 0), make_float3(0, 0, 1), make_float3(0, 1, 1), make_float3(0, 1, 0)};
-    int h_indices[] = {0, 2, 1, 0, 3, 2};
-
-    Mesh h_mesh;
-    h_mesh.num_tris = 2;
-
-    // Allocate on device
-    Mesh *d_mesh;
-    float3 *d_points;
-    int *d_indices;
-
-    cudaMalloc(&d_mesh, sizeof(Mesh));
-    cudaMalloc(&d_points, sizeof(float3) * 4);
-    cudaMalloc(&d_indices, sizeof(int) * 6);
-
-    cudaMemcpy(d_points, h_points, sizeof(float3) * 4, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_indices, h_indices, sizeof(int) * 6, cudaMemcpyHostToDevice);
-
-    h_mesh.points = d_points;
-    h_mesh.indices = d_indices;
-    cudaMemcpy(d_mesh, &h_mesh, sizeof(Mesh), cudaMemcpyHostToDevice);
+    MeshPair mesh = get_mesh();
 
     // BVH -----------------------------------------------------
     std::vector<BVHPackedNode> bvh_nodes;
-    build_bvh_sah(h_points, h_indices, h_mesh.num_tris, bvh_nodes);
+    build_bvh_sah(mesh.h_points, mesh.h_indices, mesh.h_mesh.num_tris, bvh_nodes);
 
     // Upload nodes to GPU
     BVHPackedNode *d_bvh_nodes;
@@ -239,16 +185,18 @@ int main()
     // BVH -----------------------------------------------------
 
     // ray_kernel<<<num_blocks, threads_per_block>>>(...);
-    ray_kernel<<<1, 1>>>(d_mesh, d_bvh_struct);
+    ray_kernel<<<1, 1>>>(mesh.d_mesh, d_bvh_struct);
     cudaDeviceSynchronize();
 
     // Cleanup
-    cudaFree(d_mesh);
-    cudaFree(d_points);
-    cudaFree(d_indices);
+    cudaFree(mesh.d_mesh);
+    cudaFree(mesh.h_mesh.points);
+    cudaFree(mesh.h_mesh.indices);
 
     cudaFree(d_bvh_nodes);
     cudaFree(d_bvh_struct);
+    delete[] mesh.h_points;
+    delete[] mesh.h_indices;
 
     return 0;
 }

@@ -1,4 +1,3 @@
-// sah_bvh_builder.h
 #pragma once
 
 #include <vector>
@@ -9,6 +8,8 @@
 #include <cmath>
 #include <float.h>
 #include "vector_math.h"
+
+#define BVH_STACK_SIZE 64
 
 struct BVHPackedNodeHalf
 {
@@ -99,6 +100,12 @@ struct PrimInfo
     }
 
     int size() const { return end - start; }
+};
+
+struct BVH
+{
+    BVHPackedNode *nodes;
+    int num_nodes;
 };
 
 void build_bvh_sah(

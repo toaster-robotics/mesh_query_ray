@@ -1,5 +1,4 @@
-// sah_bvh_builder.cpp
-#include "sah_bvh_builder.h"
+#include "bvh.h"
 
 namespace
 {
