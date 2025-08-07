@@ -86,7 +86,6 @@ __device__ inline bool intersect_ray_aabb(const float3 &origin, const float3 &in
 
 //-------------------------------------------------
 // Ray-triangle intersection (Möller-Trumbore)
-
 __device__ mesh_query_ray_t intersect_ray_triangle(const float3 &orig, const float3 &dir, const float3 &v0, const float3 &v1, const float3 &v2, float max_t, int face_index)
 {
     const float EPSILON = 1e-6f;
@@ -129,7 +128,6 @@ __device__ mesh_query_ray_t intersect_ray_triangle(const float3 &orig, const flo
 
 //-------------------------------------------------
 // mesh_query_ray: BVH
-
 __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &origin, const float3 &dir, float max_t)
 {
     mesh_query_ray_t closest_hit = {};
@@ -142,46 +140,6 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
 
     stack[stack_size++] = 0; // root node index
 
-    // while (stack_size > 0)
-    // {
-    //     int node_idx = stack[--stack_size];
-    //     const BVHPackedNode &node = bvh->nodes[node_idx];
-
-    //     float tmin_left = 0.0f, tmax_left = closest_hit.t;
-    //     float tmin_right = 0.0f, tmax_right = closest_hit.t;
-
-    //     bool hit_left = intersect_ray_aabb(origin, inv_dir, node.left.lower, node.left.upper, tmin_left, tmax_left);
-    //     bool hit_right = intersect_ray_aabb(origin, inv_dir, node.right.lower, node.right.upper, tmin_right, tmax_right);
-
-    //     if (node.flags == 1) // leaf
-    //     {
-    //         int start = node.prim_index;
-    //         int count = node.prim_count;
-
-    //         for (int i = 0; i < count; ++i)
-    //         {
-    //             int tri_index = start + i;
-    //             uint3 tri = mesh->indices[tri_index];
-    //             int i0 = tri.x, i1 = tri.y, i2 = tri.z;
-
-    //             float3 v0 = mesh->vertices[i0];
-    //             float3 v1 = mesh->vertices[i1];
-    //             float3 v2 = mesh->vertices[i2];
-
-    //             mesh_query_ray_t hit = intersect_ray_triangle(origin, dir, v0, v1, v2, closest_hit.t, tri_index);
-    //             if (hit.result && hit.t < closest_hit.t)
-    //                 closest_hit = hit;
-    //         }
-    //     }
-    //     else
-    //     {
-    //         if (hit_right)
-    //             stack[stack_size++] = node.right_child;
-
-    //         if (hit_left)
-    //             stack[stack_size++] = node.child;
-    //     }
-    // }
     while (stack_size > 0)
     {
         int node_idx = stack[--stack_size];
@@ -206,13 +164,6 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
             }
             continue;
         }
-
-        // Internal node: test both children safely
-        // float tminL = 0.0f, tmaxL = closest_hit.t;
-        // float tminR = 0.0f, tmaxR = closest_hit.t;
-
-        // bool hitL = intersect_ray_aabb_safe(origin, dir, node.left.lower, node.left.upper, tminL, tmaxL);
-        // bool hitR = intersect_ray_aabb_safe(origin, dir, node.right.lower, node.right.upper, tminR, tmaxR);
 
         float tmin_left = 0.0f, tmax_left = closest_hit.t;
         float tmin_right = 0.0f, tmax_right = closest_hit.t;
@@ -254,6 +205,26 @@ __device__ mesh_query_ray_t mesh_query_ray(Mesh *mesh, BVH *bvh, const float3 &o
 }
 
 //-------------------------------------------------
+// mesh_query_ray: brute force
+__device__ mesh_query_ray_t brute_mesh_query_ray(Mesh *mesh, const float3 &origin, const float3 &dir, float max_t)
+{
+    mesh_query_ray_t brute = {};
+    brute.t = 1.0e6f;
+
+    for (int tri_index = 0; tri_index < mesh->num_tris; ++tri_index)
+    {
+        uint3 tri = mesh->indices[tri_index];
+        float3 v0 = mesh->vertices[tri.x];
+        float3 v1 = mesh->vertices[tri.y];
+        float3 v2 = mesh->vertices[tri.z];
+        mesh_query_ray_t hit = intersect_ray_triangle(origin, dir, v0, v1, v2, brute.t, tri_index);
+        if (hit.result && hit.t < brute.t)
+            brute = hit;
+    }
+    return brute;
+}
+
+//-------------------------------------------------
 // Kernel and main
 
 __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
@@ -268,41 +239,7 @@ __global__ void ray_kernel(Mesh *mesh, BVH *bvh)
 
     float3 dir = make_float3(-1.0f, 0.0f, 0.0f);
 
-    mesh_query_ray_t brute = {};
-    brute.t = 1.0e6f;
-    for (int tri_index = 0; tri_index < mesh->num_tris; ++tri_index)
-    {
-        uint3 tri = mesh->indices[tri_index];
-        float3 v0 = mesh->vertices[tri.x];
-        float3 v1 = mesh->vertices[tri.y];
-        float3 v2 = mesh->vertices[tri.z];
-        mesh_query_ray_t hit = intersect_ray_triangle(orig1, dir, v0, v1, v2, brute.t, tri_index);
-        if (hit.result && hit.t < brute.t)
-            brute = hit;
-    }
-
-    // const BVHPackedNode &root = bvh->nodes[0];
-    // float3 left_lower = f3(root.left.lower);
-    // float3 left_upper = f3(root.left.upper);
-    // float3 right_lower = f3(root.right.lower);
-    // float3 right_upper = f3(root.right.upper);
-
-    // float tminL = 0.f, tmaxL = 1e6f, tminR = 0.f, tmaxR = 1e6f;
-
-    // bool hitL = intersect_ray_aabb_safe(orig1, dir, left_lower, left_upper, tminL, tmaxL);
-    // bool hitR = intersect_ray_aabb_safe(orig1, dir, right_lower, right_upper, tminR, tmaxR);
-    // printf("ROOT left: [%f,%f,%f]-[%f,%f,%f], hit=%d  right: [%f,%f,%f]-[%f,%f,%f], hit=%d\n",
-    //        root.left.lower.x, root.left.lower.y, root.left.lower.z,
-    //        root.left.upper.x, root.left.upper.y, root.left.upper.z, (int)hitL,
-    //        root.right.lower.x, root.right.lower.y, root.right.lower.z,
-    //        root.right.upper.x, root.right.upper.y, root.right.upper.z, (int)hitR);
-
-    const BVHPackedNode &root = bvh->nodes[0];
-    float3 LL = f3(root.left.lower), LU = f3(root.left.upper);
-    float3 RL = f3(root.right.lower), RU = f3(root.right.upper);
-    printf("ROOT left:  [%f,%f,%f]-[%f,%f,%f]\n", LL.x, LL.y, LL.z, LU.x, LU.y, LU.z);
-    printf("ROOT right: [%f,%f,%f]-[%f,%f,%f]\n", RL.x, RL.y, RL.z, RU.x, RU.y, RU.z);
-
+    mesh_query_ray_t brute = brute_mesh_query_ray(mesh, orig1, dir, 1.0e6f);
     mesh_query_ray_t q1 = mesh_query_ray(mesh, bvh, orig1, dir, 1.0e6f);
     // mesh_query_ray_t q2 = mesh_query_ray(mesh, bvh, orig2, dir, 1.0e6f);
 

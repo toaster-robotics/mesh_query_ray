@@ -14,17 +14,6 @@
         }                                                       \
     } while (0)
 
-// #define CUDA_OK(x)                                                                                \
-//     do                                                                                            \
-//     {                                                                                             \
-//         cudaError_t e = (x);                                                                      \
-//         if (e != cudaSuccess)                                                                     \
-//         {                                                                                         \
-//             fprintf(stderr, "CUDA error %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
-//             abort();                                                                              \
-//         }                                                                                         \
-//     } while (0)
-
 MeshContainer get_mesh()
 {
     // std::vector<float3> host_vertices = {
